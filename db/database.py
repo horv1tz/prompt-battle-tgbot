@@ -1,0 +1,114 @@
+import aiosqlite
+
+async def init_db():
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        # Таблица для игр
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS games (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT UNIQUE,
+                prompt TEXT,
+                photo_id TEXT,
+                status TEXT DEFAULT 'pending' 
+            )
+        ''')
+        # Таблица для результатов
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT,
+                user_id INTEGER,
+                username TEXT,
+                prompt_text TEXT,
+                score INTEGER,
+                FOREIGN KEY (game_id) REFERENCES games (game_id)
+            )
+        ''')
+        # Новая таблица для участников
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS participants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT,
+                user_id INTEGER,
+                UNIQUE(game_id, user_id),
+                FOREIGN KEY (game_id) REFERENCES games (game_id)
+            )
+        ''')
+        await db.commit()
+
+async def add_game(game_id, prompt, photo_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute(
+            "INSERT INTO games (game_id, prompt, photo_id, status) VALUES (?, ?, ?, 'pending')",
+            (game_id, prompt, photo_id)
+        )
+        await db.commit()
+
+async def activate_game(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute("UPDATE games SET status = 'active' WHERE game_id = ?", (game_id,))
+        await db.commit()
+
+async def stop_game(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute("UPDATE games SET status = 'finished' WHERE game_id = ?", (game_id,))
+        await db.commit()
+
+async def get_game(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute('SELECT prompt, photo_id FROM games WHERE game_id = ?', (game_id,))
+        return await cursor.fetchone()
+
+async def get_game_status(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute('SELECT status FROM games WHERE game_id = ?', (game_id,))
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def get_game_prompt(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute("SELECT prompt FROM games WHERE game_id = ? AND status = 'active'", (game_id,))
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def add_participant(game_id, user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute("INSERT OR IGNORE INTO participants (game_id, user_id) VALUES (?, ?)", (game_id, user_id))
+        await db.commit()
+
+async def get_participants(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute("SELECT user_id FROM participants WHERE game_id = ?", (game_id,))
+        return [row[0] for row in await cursor.fetchall()]
+
+async def get_user_active_game(user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute("""
+            SELECT p.game_id FROM participants p
+            JOIN games g ON p.game_id = g.game_id
+            WHERE p.user_id = ? AND g.status = 'active'
+        """, (user_id,))
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def add_result(game_id, user_id, username, prompt_text, score):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute(
+            'INSERT INTO results (game_id, user_id, username, prompt_text, score) VALUES (?, ?, ?, ?, ?)',
+            (game_id, user_id, username, prompt_text, score)
+        )
+        await db.commit()
+
+async def get_user_attempts(game_id, user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute('SELECT COUNT(*) FROM results WHERE game_id = ? AND user_id = ?', (game_id, user_id))
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+async def get_results(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute(
+            'SELECT user_id, username, prompt_text, score FROM results WHERE game_id = ? ORDER BY score DESC',
+            (game_id,)
+        )
+        return await cursor.fetchall()
