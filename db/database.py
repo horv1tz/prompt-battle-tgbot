@@ -158,3 +158,10 @@ async def has_user_won(game_id, user_id):
         )
         row = await cursor.fetchone()
         return row is not None
+
+async def get_finished_games():
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute(
+            "SELECT game_id, prompt FROM games WHERE status = 'finished' ORDER BY id DESC"
+        )
+        return await cursor.fetchall()

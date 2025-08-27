@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from openpyxl import Workbook
 from config.config import ADMIN_IDS
 from db.database import (add_game, stop_game, get_all_results, get_best_results, get_game, 
-                         get_game_status, get_participants, get_current_active_game, get_last_finished_game)
+                         get_game_status, get_participants, get_current_active_game, get_finished_games)
 import os
 
 admin_router = Router()
@@ -91,16 +91,29 @@ async def stop_game_command(message: types.Message, bot: Bot):
 
 @admin_router.message(Command("excel"), F.from_user.id.in_(ADMIN_IDS))
 async def excel_export_command(message: types.Message):
-    game_id = await get_last_finished_game()
-    if not game_id:
+    finished_games = await get_finished_games()
+    if not finished_games:
         await message.answer("Нет завершенных игр для экспорта.")
         return
 
+    buttons = []
+    for game_id, prompt in finished_games:
+        # Обрезаем промпт для отображения на кнопке
+        short_prompt = (prompt[:20] + '...') if len(prompt) > 20 else prompt
+        buttons.append([types.InlineKeyboardButton(text=f"Игра: {short_prompt}", callback_data=f"select_game:{game_id}")])
+    
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("Выберите игру для экспорта:", reply_markup=keyboard)
+
+@admin_router.callback_query(F.data.startswith("select_game:"))
+async def select_game_for_export(callback_query: types.CallbackQuery):
+    game_id = callback_query.data.split(":")[1]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Выгрузить лучший результат", callback_data=f"excel_best:{game_id}")],
         [types.InlineKeyboardButton(text="Выгрузить все результаты", callback_data=f"excel_all:{game_id}")]
     ])
-    await message.answer("Выберите тип выгрузки:", reply_markup=keyboard)
+    await callback_query.message.edit_text("Выберите тип выгрузки:", reply_markup=keyboard)
+    await callback_query.answer()
 
 @admin_router.callback_query(F.data.startswith("excel_"))
 async def excel_export_callback(callback_query: types.CallbackQuery):
