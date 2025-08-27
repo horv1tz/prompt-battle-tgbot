@@ -1,4 +1,5 @@
 import aiosqlite
+import uuid
 
 async def init_db():
     async with aiosqlite.connect('prompt_battle.db') as db:
@@ -36,13 +37,17 @@ async def init_db():
         ''')
         await db.commit()
 
-async def add_game(game_id, prompt, photo_id):
+async def add_game(prompt, photo_id):
+    game_id = str(uuid.uuid4())
     async with aiosqlite.connect('prompt_battle.db') as db:
+        # Завершаем все предыдущие активные игры
+        await db.execute("UPDATE games SET status = 'finished' WHERE status = 'active'")
         await db.execute(
-            "INSERT INTO games (game_id, prompt, photo_id, status) VALUES (?, ?, ?, 'pending')",
+            "INSERT INTO games (game_id, prompt, photo_id, status) VALUES (?, ?, ?, 'active')",
             (game_id, prompt, photo_id)
         )
         await db.commit()
+    return game_id
 
 async def activate_game(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
@@ -105,10 +110,51 @@ async def get_user_attempts(game_id, user_id):
         row = await cursor.fetchone()
         return row[0] if row else 0
 
-async def get_results(game_id):
+async def get_all_results(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
         cursor = await db.execute(
             'SELECT user_id, username, prompt_text, score FROM results WHERE game_id = ? ORDER BY score DESC',
             (game_id,)
         )
         return await cursor.fetchall()
+
+async def get_best_results(game_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute('''
+            SELECT r.user_id, r.username, r.prompt_text, r.score
+            FROM results r
+            INNER JOIN (
+                SELECT user_id, MAX(score) as max_score
+                FROM results
+                WHERE game_id = ?
+                GROUP BY user_id
+            ) AS best_scores ON r.user_id = best_scores.user_id AND r.score = best_scores.max_score
+            WHERE r.game_id = ?
+            ORDER BY r.score DESC
+        ''', (game_id, game_id))
+        return await cursor.fetchall()
+
+async def get_current_active_game():
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute(
+            "SELECT game_id FROM games WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def get_last_finished_game():
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute(
+            "SELECT game_id FROM games WHERE status = 'finished' ORDER BY id DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def has_user_won(game_id, user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        cursor = await db.execute(
+            'SELECT 1 FROM results WHERE game_id = ? AND user_id = ? AND score = 100',
+            (game_id, user_id)
+        )
+        row = await cursor.fetchone()
+        return row is not None

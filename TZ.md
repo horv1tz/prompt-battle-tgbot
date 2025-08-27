@@ -38,3 +38,43 @@
 | user123 | a cat sitting on the table | 78   |
 | anna    | kitten on wooden desk      | 65   |
 | ivan    | dog in the park            | 12   |
+
+
+# Добавить/Исправить
+1. Подписка на ТГК с вакансиями
+2. Отсутствие времени старта.
+Админ создал игру, юзер подключился попробовал отгадать и ждёт окончание игры.
+3. Убрать коды для подключения к конкретной игре
+/start - Приветственное сообщение
+кнопка Начать игру - Объяснение задания
+Старт - 3 попытки 
+ответ ожидайте результата
+5. Убрать лидерборд
+6. Сделать сообщение о начале следующей игры.
+7. Определение по лучшему результату
+8. 2 варианта выгрузки
+    1. Выгрузка лучшего варианта
+    2. выгрузка всех вариантов
+9. Симантический анализ используя код ниже
+```
+from sentence_transformers import SentenceTransformer, util
+
+# Загрузка модели один раз при старте
+model = SentenceTransformer('stsb-roberta-large')
+
+def get_similarity_score(sentence1, sentence2):
+    """
+    Вычисляет балл семантического сходства между двумя фразами.
+    Возвращает целое число от 0 до 100.
+    """
+    # Преобразование фраз в эмбеддинги
+    embedding1 = model.encode(sentence1, convert_to_tensor=True)
+    embedding2 = model.encode(sentence2, convert_to_tensor=True)
+
+    # Вычисление косинусного сходства
+    cosine_score = util.pytorch_cos_sim(embedding1, embedding2)[0][0]
+
+    # Приводим результат к диапазону [0, 100], где 0 - нет сходства.
+    score = max(0, cosine_score) * 100
+    return int(score)
+```
