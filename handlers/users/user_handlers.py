@@ -1,13 +1,15 @@
 from aiogram import types, Router
 from aiogram.filters import Command, CommandStart
 from db.database import (add_result, get_user_attempts, get_game_prompt, 
-                         add_participant, get_user_active_game, get_current_active_game, get_game, has_user_won, get_game_status)
+                         add_participant, get_user_active_game, get_current_active_game, get_game, has_user_won, get_game_status, add_or_update_user)
 from utils.similarity import get_similarity_score
 
 user_router = Router()
 
 @user_router.message(CommandStart())
 async def start_handler(message: types.Message):
+    user = message.from_user
+    await add_or_update_user(user.id, user.username, user.first_name, user.last_name)
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Начать игру", callback_data="start_game")]
     ])

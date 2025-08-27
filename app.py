@@ -27,7 +27,8 @@ async def set_commands(bot: Bot):
     admin_commands = user_commands + [
         BotCommand(command="makegame", description="Создать игру"),
         BotCommand(command="stopgame", description="Остановить игру"),
-        BotCommand(command="excel", description="Экспорт результатов")
+        BotCommand(command="excel", description="Экспорт результатов"),
+        BotCommand(command="senduser", description="Отправить сообщение пользователю")
     ]
 
     # Установка команд для всех пользователей

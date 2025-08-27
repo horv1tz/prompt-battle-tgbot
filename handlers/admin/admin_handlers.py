@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from openpyxl import Workbook
 from config.config import ADMIN_IDS
 from db.database import (add_game, stop_game, get_all_results, get_best_results, get_game, 
-                         get_game_status, get_participants, get_current_active_game, get_finished_games)
+                         get_game_status, get_participants, get_current_active_game, get_finished_games, get_all_user_ids)
 import os
 
 admin_router = Router()
@@ -22,7 +22,8 @@ async def admin_help_command(message: types.Message):
         "Команды администратора:\n"
         "/makegame - Создать новую игру\n"
         "/stopgame - Остановить активную игру\n"
-        "/excel - Экспортировать результаты"
+        "/excel - Экспортировать результаты\n"
+        "/senduser <id> <message> - Отправить сообщение пользователю"
     )
 
 @admin_router.message(Command("makegame"), F.from_user.id.in_(ADMIN_IDS))
@@ -46,16 +47,14 @@ async def prompt_sent(message: types.Message, state: FSMContext, bot: Bot):
     game_id = await add_game(prompt, photo_id)
     await state.clear()
 
-    # Рассылка всем пользователям, которые есть в базе
-    # Это упрощение, в идеале нужна таблица users
-    all_users = [] # Тут должен быть код для получения всех юзеров
-    # for user_id in all_users:
-    #     try:
-    #         await bot.send_photo(user_id, photo_id, caption="Новая игра началась! Присоединяйтесь и присылайте свои варианты промптов.")
-    #     except Exception as e:
-    #         print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+    all_user_ids = await get_all_user_ids()
+    for user_id in all_user_ids:
+        try:
+            await bot.send_photo(user_id, photo_id, caption="Новая игра началась! Нажмите /start, чтобы присоединиться.")
+        except Exception as e:
+            print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
-    await message.answer(f"Игра успешно создана и запущена! ID игры: `{game_id}`.")
+    await message.answer(f"Игра успешно создана и разослана {len(all_user_ids)} пользователям. ID игры: `{game_id}`.")
 
 
 @admin_router.message(Command("stopgame"), F.from_user.id.in_(ADMIN_IDS))
@@ -134,10 +133,10 @@ async def excel_export_callback(callback_query: types.CallbackQuery):
     wb = Workbook()
     ws = wb.active
     ws.title = f"Результаты {game_id}"
-    ws.append(["user_id", "ник", "предложенный промпт", "очки"])
+    ws.append(["user_id", "ник", "предложенный промпт", "очки", "время ответа"])
 
-    for user_id, username, prompt, score in results:
-        ws.append([user_id, username, prompt, score])
+    for user_id, username, prompt, score, timestamp in results:
+        ws.append([user_id, username, prompt, score, timestamp])
 
     file_path = f"results_{game_id}_{file_suffix}.xlsx"
     wb.save(file_path)
@@ -145,3 +144,17 @@ async def excel_export_callback(callback_query: types.CallbackQuery):
     await callback_query.message.answer_document(types.FSInputFile(file_path))
     os.remove(file_path)
     await callback_query.answer()
+
+@admin_router.message(Command("senduser"), F.from_user.id.in_(ADMIN_IDS))
+async def send_user_command(message: types.Message, bot: Bot):
+    try:
+        parts = message.text.split(maxsplit=2)
+        user_id = int(parts[1])
+        text_to_send = parts[2]
+        
+        await bot.send_message(user_id, text_to_send)
+        await message.answer(f"Сообщение успешно отправлено пользователю {user_id}.")
+    except (IndexError, ValueError):
+        await message.answer("Неверный формат. Используйте: /senduser <id> <message>")
+    except Exception as e:
+        await message.answer(f"Не удалось отправить сообщение: {e}")
