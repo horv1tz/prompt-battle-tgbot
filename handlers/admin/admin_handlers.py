@@ -175,10 +175,10 @@ async def excel_export_callback(callback_query: types.CallbackQuery):
     wb = Workbook()
     ws = wb.active
     ws.title = f"Результаты {game_id}"
-    ws.append(["user_id", "ник", "предложенный промпт", "очки", "время ответа"])
+    ws.append(["user_id", "ник", "номер телефона", "предложенный промпт", "очки", "время ответа"])
 
-    for user_id, username, prompt, score, timestamp in results:
-        ws.append([user_id, username, prompt, score, timestamp])
+    for row in results:
+        ws.append([row['user_id'], row['username'], row['phone_number'], row['prompt_text'], row['score'], row['timestamp']])
 
     # Сохраняем файл в байтовый поток в памяти
     file_stream = io.BytesIO()

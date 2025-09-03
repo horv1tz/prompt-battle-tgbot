@@ -162,8 +162,15 @@ async def get_user_attempts(game_id, user_id):
 
 async def get_all_results(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
+        db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            'SELECT user_id, username, prompt_text, score, timestamp FROM results WHERE game_id = ? ORDER BY score DESC',
+            '''
+            SELECT r.user_id, r.username, r.prompt_text, r.score, r.timestamp, u.phone_number
+            FROM results r
+            LEFT JOIN users u ON r.user_id = u.user_id
+            WHERE r.game_id = ? 
+            ORDER BY r.score DESC
+            ''',
             (game_id,)
         )
         return await cursor.fetchall()
@@ -172,8 +179,9 @@ async def get_best_results(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute('''
-            SELECT r.user_id, r.username, r.prompt_text, r.score, r.timestamp
+            SELECT r.user_id, r.username, r.prompt_text, r.score, r.timestamp, u.phone_number
             FROM results r
+            LEFT JOIN users u ON r.user_id = u.user_id
             INNER JOIN (
                 SELECT user_id, MAX(score) as max_score
                 FROM results
