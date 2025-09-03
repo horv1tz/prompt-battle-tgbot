@@ -1,14 +1,17 @@
 import random
 import string
 from aiogram import types, Router, F, Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from openpyxl import Workbook
 from config.config import ADMIN_IDS
 from db.database import (add_game, stop_game, get_all_results, get_best_results, get_game, 
-                         get_game_status, get_participants, get_current_active_game, get_finished_games, get_all_user_ids)
-import os
+                         get_game_status, get_participants, get_current_active_game, get_finished_games, 
+                         get_all_user_ids, get_user_result_for_game)
+import io
+from aiogram.types import BufferedInputFile
 
 admin_router = Router()
 
@@ -48,13 +51,17 @@ async def prompt_sent(message: types.Message, state: FSMContext, bot: Bot):
     await state.clear()
 
     all_user_ids = await get_all_user_ids()
+    sent_count = 0
     for user_id in all_user_ids:
         try:
             await bot.send_photo(user_id, photo_id, caption="Новая игра началась! Нажмите /start, чтобы присоединиться.")
+            sent_count += 1
+        except TelegramForbiddenError:
+            print(f"Не удалось отправить сообщение пользователю {user_id}: бот заблокирован или это другой бот.")
         except Exception as e:
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
-    await message.answer(f"Игра успешно создана и разослана {len(all_user_ids)} пользователям. ID игры: `{game_id}`.")
+    await message.answer(f"Игра успешно создана. Уведомление разослано {sent_count} из {len(all_user_ids)} пользователей. ID игры: `{game_id}`.")
 
 
 @admin_router.message(Command("stopgame"), F.from_user.id.in_(ADMIN_IDS))
@@ -67,26 +74,61 @@ async def stop_game_command(message: types.Message, bot: Bot):
     await stop_game(game_id)
     
     participants = await get_participants(game_id)
-    results = await get_all_results(game_id)
+    if not participants:
+        await message.answer(f"Игра {game_id} остановлена, но в ней не было участников.")
+        return
+
+    best_results = await get_best_results(game_id)
     game_data = await get_game(game_id)
+
     if not game_data:
         await message.answer("Не удалось получить данные игры.")
         return
     
     true_prompt, _ = game_data
+    
+    winner_text = "🏆 Победитель этого раунда не определен."
+    if best_results:
+        winner = best_results[0]
+        winner_username = winner['username'] if winner['username'] else f"user_id: {winner['user_id']}"
+        winner_score = winner['score']
+        winner_text = f"🏆 Победитель этого раунда: @{winner_username} с результатом {winner_score}%!"
 
-    # Отправка сообщения о начале следующей игры
+    # Рассылка результатов
     for user_id in participants:
-        user_result = next((res for res in results if res[0] == user_id), None)
-        score = user_result[3] if user_result else "нет данных"
+        user_score = await get_user_result_for_game(game_id, user_id)
         try:
-            await bot.send_message(user_id, f"Ваш личный результат: {score} очков.\n"
-                                                f"Истинный промпт был: '{true_prompt}'\n"
-                                                "Скоро начнется следующая игра.")
+            await bot.send_message(
+                user_id,
+                f"🥁 Время подвести итоги! Раунд завершён!\n\n"
+                f"Оригинальный промт был: «{true_prompt}»\n\n"
+                f"{winner_text}\n\n"
+                f"Твой результат: {user_score}%\n\n"
+                "Спасибо за участие! До следующей битвы! ✨"
+            )
+        except TelegramForbiddenError:
+            print(f"Не удалось отправить итоги пользователю {user_id}: бот заблокирован или это другой бот.")
         except Exception as e:
-            print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+            print(f"Не удалось отправить итоги пользователю {user_id}: {e}")
 
-    await message.answer(f"Игра {game_id} успешно остановлена.")
+    # Рассылка предложения о новом раунде
+    new_round_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🎯 Да, начинаем!", callback_data="play_now_from_text")],
+        [types.InlineKeyboardButton(text="⏰ Не сейчас", callback_data="play_later_from_text")]
+    ])
+    for user_id in participants:
+        try:
+            await bot.send_message(
+                user_id,
+                "🔥 Стартует новый раунд! Готов(а) снова бросить вызов нейросети?",
+                reply_markup=new_round_keyboard
+            )
+        except TelegramForbiddenError:
+            print(f"Не удалось предложить новый раунд пользователю {user_id}: бот заблокирован или это другой бот.")
+        except Exception as e:
+            print(f"Не удалось предложить новый раунд пользователю {user_id}: {e}")
+
+    await message.answer(f"Игра {game_id} успешно остановлена. Результаты разосланы {len(participants)} участникам.")
 
 @admin_router.message(Command("excel"), F.from_user.id.in_(ADMIN_IDS))
 async def excel_export_command(message: types.Message):
@@ -138,11 +180,15 @@ async def excel_export_callback(callback_query: types.CallbackQuery):
     for user_id, username, prompt, score, timestamp in results:
         ws.append([user_id, username, prompt, score, timestamp])
 
-    file_path = f"results_{game_id}_{file_suffix}.xlsx"
-    wb.save(file_path)
+    # Сохраняем файл в байтовый поток в памяти
+    file_stream = io.BytesIO()
+    wb.save(file_stream)
+    file_stream.seek(0) # Перемещаем курсор в начало файла
 
-    await callback_query.message.answer_document(types.FSInputFile(file_path))
-    os.remove(file_path)
+    file_name = f"results_{game_id}_{file_suffix}.xlsx"
+    await callback_query.message.answer_document(
+        BufferedInputFile(file_stream.read(), filename=file_name)
+    )
     await callback_query.answer()
 
 @admin_router.message(Command("senduser"), F.from_user.id.in_(ADMIN_IDS))
@@ -156,5 +202,7 @@ async def send_user_command(message: types.Message, bot: Bot):
         await message.answer(f"Сообщение успешно отправлено пользователю {user_id}.")
     except (IndexError, ValueError):
         await message.answer("Неверный формат. Используйте: /senduser <id> <message>")
+    except TelegramForbiddenError:
+        await message.answer(f"Не удалось отправить сообщение пользователю {user_id}: бот заблокирован или это другой бот.")
     except Exception as e:
         await message.answer(f"Не удалось отправить сообщение: {e}")

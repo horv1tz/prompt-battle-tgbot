@@ -10,7 +10,9 @@ async def init_db():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 first_name TEXT,
-                last_name TEXT
+                last_name TEXT,
+                phone_number TEXT,
+                state TEXT DEFAULT 'new'
             )
         ''')
         # Таблица для игр
@@ -109,15 +111,34 @@ async def get_user_active_game(user_id):
 
 async def add_or_update_user(user_id, username, first_name, last_name):
     async with aiosqlite.connect('prompt_battle.db') as db:
+        # При первом запуске/перезапуске бота, если юзер уже есть, не меняем его состояние
         await db.execute(
             '''
-            INSERT INTO users (user_id, username, first_name, last_name) 
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (user_id, username, first_name, last_name, state) 
+            VALUES (?, ?, ?, ?, 'new')
             ON CONFLICT(user_id) DO UPDATE SET
-            username=excluded.username, first_name=excluded.first_name, last_name=excluded.last_name
+            username=excluded.username, 
+            first_name=excluded.first_name, 
+            last_name=excluded.last_name
             ''',
             (user_id, username, first_name, last_name)
         )
+        await db.commit()
+
+async def get_user_by_id(user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        return await cursor.fetchone()
+
+async def update_user_state(user_id, state):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute("UPDATE users SET state = ? WHERE user_id = ?", (state, user_id))
+        await db.commit()
+
+async def update_user_phone(user_id, phone_number):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        await db.execute("UPDATE users SET phone_number = ? WHERE user_id = ?", (phone_number, user_id))
         await db.commit()
 
 async def get_all_user_ids():
@@ -149,6 +170,7 @@ async def get_all_results(game_id):
 
 async def get_best_results(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
+        db.row_factory = aiosqlite.Row
         cursor = await db.execute('''
             SELECT r.user_id, r.username, r.prompt_text, r.score, r.timestamp
             FROM results r
@@ -162,6 +184,16 @@ async def get_best_results(game_id):
             ORDER BY r.score DESC
         ''', (game_id, game_id))
         return await cursor.fetchall()
+
+async def get_user_result_for_game(game_id, user_id):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT score FROM results WHERE game_id = ? AND user_id = ? ORDER BY score DESC LIMIT 1",
+            (game_id, user_id)
+        )
+        row = await cursor.fetchone()
+        return row['score'] if row else 0
 
 async def get_current_active_game():
     async with aiosqlite.connect('prompt_battle.db') as db:
@@ -187,6 +219,18 @@ async def has_user_won(game_id, user_id):
         )
         row = await cursor.fetchone()
         return row is not None
+
+async def set_user_attempts_to_max(game_id, user_id, max_attempts):
+    async with aiosqlite.connect('prompt_battle.db') as db:
+        # Удаляем предыдущие попытки
+        await db.execute('DELETE FROM results WHERE game_id = ? AND user_id = ?', (game_id, user_id))
+        # Вставляем "пустые" записи, чтобы счетчик попыток достиг максимума
+        for _ in range(max_attempts):
+            await db.execute(
+                'INSERT INTO results (game_id, user_id, username, prompt_text, score, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+                (game_id, user_id, 'winner', 'winner_prompt', 100, datetime.now())
+            )
+        await db.commit()
 
 async def get_finished_games():
     async with aiosqlite.connect('prompt_battle.db') as db:

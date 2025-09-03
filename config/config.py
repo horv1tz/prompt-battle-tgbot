@@ -12,4 +12,10 @@ admin_ids_str = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(admin_id) for admin_id in admin_ids_str.split(",") if admin_id.isdigit()]
 
 # ID канала для проверки подписки
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+# Для частных каналов ID должен быть числом (например, -1001234567890)
+# Для публичных каналов - строкой (например, '@mychannel')
+raw_channel_id = os.getenv("CHANNEL_ID")
+try:
+    CHANNEL_ID = int(raw_channel_id)
+except (ValueError, TypeError):
+    CHANNEL_ID = raw_channel_id

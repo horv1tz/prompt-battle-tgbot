@@ -2,21 +2,21 @@
 
 import asyncio
 import logging
+import signal
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeChat
+from aiogram.fsm.storage.memory import MemoryStorage
 from config.config import BOT_TOKEN, ADMIN_IDS
 from handlers.admin.admin_handlers import admin_router
 from handlers.users.user_handlers import user_router
 from db.database import init_db
-from middlewares.subscription import SubscriptionMiddleware
 
-# Включаем логирование, чтобы видеть сообщения в консоли
-logging.basicConfig(level=logging.INFO)
-
-# Объект бота
-bot = Bot(token=BOT_TOKEN)
-# Диспетчер
-dp = Dispatcher()
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 async def set_commands(bot: Bot):
     user_commands = [
@@ -45,18 +45,39 @@ async def set_commands(bot: Bot):
 async def on_startup(bot: Bot):
     await init_db()
     await set_commands(bot)
+    logger.info("Бот запущен")
+
+async def on_shutdown(bot: Bot):
+    logger.info("Бот останавливается")
 
 async def main():
+    # Объект бота
+    bot = Bot(token=BOT_TOKEN)
+    # Диспетчер
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+
     # Регистрируем роутеры
     dp.include_router(admin_router)
     dp.include_router(user_router)
 
-    # Регистрируем middleware
-    dp.message.middleware(SubscriptionMiddleware())
+    # Регистрируем функции startup и shutdown
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    # Добавляем обработчики сигналов для graceful shutdown
+    loop = asyncio.get_running_loop()
+    for signame in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(
+            getattr(signal, signame),
+            lambda: asyncio.create_task(dp.stop_polling())
+        )
 
     # Запускаем polling
-    dp.startup.register(on_startup)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен вручную")
