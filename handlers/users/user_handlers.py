@@ -58,15 +58,16 @@ async def send_game_image(message: types.Message, state: FSMContext):
 
 @user_router.message(CommandStart())
 async def start_handler(message: types.Message, state: FSMContext):
-    await state.clear() # Сбрасываем состояние при каждом /start
+    await state.clear()
     user = message.from_user
     db_user = await get_user_by_id(user.id)
 
     if not db_user:
         await add_or_update_user(user.id, user.username, user.first_name, user.last_name)
-    
-    # Если пользователь уже полностью зарегистрирован
-    if db_user and db_user['state'] == 'registered':
+        db_user = await get_user_by_id(user.id)
+
+    if db_user and db_user['phone_number']:
+        await update_user_state(user.id, 'registered')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🎯 Да, начинаем!", callback_data="play_now")],
             [types.InlineKeyboardButton(text="⏰ Не сейчас", callback_data="play_later")]
@@ -76,39 +77,27 @@ async def start_handler(message: types.Message, state: FSMContext):
             reply_markup=keyboard,
         )
         await state.set_state(UserState.awaiting_readiness_to_play)
-        return
+    else:
+        keyboard = types.ReplyKeyboardMarkup(
+            keyboard=[[types.KeyboardButton(text="📞 Отправить мой номер", request_contact=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await message.answer(
+            "Здорово! Ты с нами 🚀\n\n"
+            "Для связи в случае победы нам нужен твой номер телефона. "
+            "Поделись им, нажав кнопку ниже 👇\n\n"
+            "Или просто напиши его в формате: +7 XXX XXX XX XX",
+            reply_markup=keyboard
+        )
+        await state.set_state(UserState.awaiting_phone_number)
 
-    # Если пользователь новый или не закончил регистрацию
-    channel_link = "https://t.me/horvitz_blog"
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="↗️ Перейти в канал", url=channel_link)],
-        [types.InlineKeyboardButton(text="✅ Я подписался(ась)", callback_data="subscription_confirmed")]
-    ])
-    await message.answer(
-        "Приветствую в «Битве Промптов»✨\n\n"
-        "Чтобы присоединиться к соревнованию, тебе необходимо быть подписчиком нашего канала. "
-        "Подпишись и нажми кнопку «✅ Я подписался(ась)», чтобы продолжить.",
-        reply_markup=keyboard,
-        disable_web_page_preview=True
-    )
-    await state.set_state(UserState.awaiting_subscription_check)
-
-@user_router.callback_query(F.data == 'subscription_confirmed', UserState.awaiting_subscription_check)
+@user_router.callback_query(F.data == 'subscription_confirmed')
 async def subscription_confirmed_handler(callback_query: types.CallbackQuery, state: FSMContext):
-    await callback_query.message.edit_text("Здорово! Ты с нами 🚀")
-    
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[[types.KeyboardButton(text="📞 Отправить мой номер", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    await callback_query.message.answer(
-        "Для связи в случае победы нам нужен твой номер телефона. "
-        "Поделись им, нажав кнопку ниже 👇\n\n"
-        "Или просто напиши его в формате: +7 XXX XXX XX XX",
-        reply_markup=keyboard
-    )
-    await state.set_state(UserState.awaiting_phone_number)
+    # Этот обработчик теперь может быть пустым или использоваться для дополнительной логики,
+    # так как основная проверка происходит в middleware.
+    # Для чистоты, можно просто перенаправить на /start.
+    await start_handler(callback_query.message, state)
     await callback_query.answer()
 
 @user_router.message(UserState.awaiting_phone_number, F.contact)

@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config.config import BOT_TOKEN, ADMIN_IDS
 from handlers.admin.admin_handlers import admin_router
 from handlers.users.user_handlers import user_router
+from middlewares.subscription import SubscriptionMiddleware
 from db.database import init_db
 
 # Настройка логирования
@@ -58,6 +59,8 @@ async def main():
     dp = Dispatcher(storage=storage)
 
     # Регистрируем роутеры
+    user_router.message.middleware(SubscriptionMiddleware())
+    user_router.callback_query.middleware(SubscriptionMiddleware())
     dp.include_router(admin_router)
     dp.include_router(user_router)
 
