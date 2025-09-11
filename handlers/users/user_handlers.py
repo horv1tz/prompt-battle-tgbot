@@ -1,5 +1,5 @@
 from aiogram import types, Router, F, Bot
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from db.database import (add_result, get_user_attempts, get_game_prompt,
@@ -45,19 +45,15 @@ async def ask_for_subscription(message: types.Message, is_new_user: bool):
     await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
 
 async def ask_for_phone(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="📞 Отправить мой номер", callback_data="request_contact_permission")]
-    ])
-    # Запрос контакта через Reply-кнопку, которая появится после нажатия на Inline
-    reply_keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[[types.KeyboardButton(text="📞 Отправить мой номер", request_contact=True)]],
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text="📞 Поделиться номером", request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True
     )
     await message.answer(
         "Здорово! Ты с нами 🚀\n\n"
         "Для связи в случае победы нам нужен твой номер телефона. Поделись им, нажав кнопку ниже 👇",
-        reply_markup=reply_keyboard # Сначала показываем Reply-клавиатуру
+        reply_markup=keyboard
     )
 
 
@@ -86,6 +82,20 @@ async def start_handler(message: types.Message, state: FSMContext, bot: Bot):
         await ask_for_phone(message)
     else:
         await show_main_menu(message)
+
+@user_router.message(Command("help"))
+async def help_handler(message: types.Message):
+    help_text = (
+        "Привет! Я бот для игры «Битва Промптов».\n\n"
+        "Вот как все работает:\n"
+        "1. Нажми /start, чтобы начать или перезапустить бота.\n"
+        "2. Я проверю, подписан ли ты на наш канал.\n"
+        "3. Когда начнется игра, ты получишь уведомление и сможешь присоединиться.\n"
+        "4. Твоя задача — угадать текстовый запрос (промпт), по которому было сгенерировано изображение.\n\n"
+        "Удачи! 🏆"
+    )
+    await message.answer(help_text)
+
 
 @user_router.callback_query(F.data == 'check_subscription_again')
 async def check_subscription_again_handler(callback_query: types.CallbackQuery, state: FSMContext, bot: Bot):
