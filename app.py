@@ -27,6 +27,8 @@ async def set_commands(bot: Bot):
     
     admin_commands = user_commands + [
         BotCommand(command="makegame", description="Создать игру"),
+        BotCommand(command="startgame", description="Запустить первую игру"),
+        BotCommand(command="continuegame", description="Запустить следующую игру"),
         BotCommand(command="stopgame", description="Остановить игру"),
         BotCommand(command="excel", description="Экспорт результатов"),
         BotCommand(command="senduser", description="Отправить сообщение пользователю")
@@ -59,8 +61,8 @@ async def main():
     dp = Dispatcher(storage=storage)
 
     # Регистрируем роутеры
-    user_router.message.middleware(SubscriptionMiddleware())
-    user_router.callback_query.middleware(SubscriptionMiddleware())
+    # Мы больше не используем middleware на уровне роутера,
+    # так как логика проверки подписки перенесена в хендлеры.
     dp.include_router(admin_router)
     dp.include_router(user_router)
 

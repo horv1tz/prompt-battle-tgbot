@@ -7,9 +7,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from openpyxl import Workbook
 from config.config import ADMIN_IDS
-from db.database import (add_game, stop_game, get_all_results, get_best_results, get_game, 
-                         get_game_status, get_participants, get_current_active_game, get_finished_games, 
-                         get_all_user_ids, get_user_result_for_game)
+from db.database import (add_game, stop_game, get_all_results, get_best_results, get_game,
+                         get_game_status, get_participants, get_current_active_game, get_finished_games,
+                         get_all_user_ids, get_user_result_for_game, start_next_game)
 import io
 from aiogram.types import BufferedInputFile
 
@@ -24,6 +24,8 @@ async def admin_help_command(message: types.Message):
     await message.answer(
         "Команды администратора:\n"
         "/makegame - Создать новую игру\n"
+        "/startgame - Запустить первую игру из очереди\n"
+        "/continuegame - Запустить следующую игру из очереди\n"
         "/stopgame - Остановить активную игру\n"
         "/excel - Экспортировать результаты\n"
         "/senduser <id> <message> - Отправить сообщение пользователю"
@@ -42,7 +44,7 @@ async def photo_sent(message: types.Message, state: FSMContext):
     await state.set_state(CreateGame.waiting_for_prompt)
 
 @admin_router.message(CreateGame.waiting_for_prompt, F.from_user.id.in_(ADMIN_IDS))
-async def prompt_sent(message: types.Message, state: FSMContext, bot: Bot):
+async def prompt_sent(message: types.Message, state: FSMContext):
     data = await state.get_data()
     photo_id = data.get('photo_id')
     prompt = message.text
@@ -50,18 +52,43 @@ async def prompt_sent(message: types.Message, state: FSMContext, bot: Bot):
     game_id = await add_game(prompt, photo_id)
     await state.clear()
 
+    await message.answer(f"Игра успешно добавлена в очередь. ID игры: `{game_id}`. Используйте /startgame, чтобы начать.")
+
+
+async def start_game_logic(message: types.Message, bot: Bot):
+    game_id = await start_next_game()
+    if not game_id:
+        await message.answer("Нет ожидающих игр для запуска.")
+        return
+
+    game_data = await get_game(game_id)
+    if not game_data:
+        await message.answer("Не удалось получить данные для запуска игры.")
+        return
+    
+    _, photo_id = game_data
+    
     all_user_ids = await get_all_user_ids()
     sent_count = 0
     for user_id in all_user_ids:
         try:
-            await bot.send_photo(user_id, photo_id, caption="Новая игра началась! Нажмите /start, чтобы присоединиться.")
+            # Убираем фото на старте раунда
+            await bot.send_message(user_id, "Новая игра началась! Нажмите /start, чтобы присоединиться.")
             sent_count += 1
         except TelegramForbiddenError:
             print(f"Не удалось отправить сообщение пользователю {user_id}: бот заблокирован или это другой бот.")
         except Exception as e:
             print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
-    await message.answer(f"Игра успешно создана. Уведомление разослано {sent_count} из {len(all_user_ids)} пользователей. ID игры: `{game_id}`.")
+    await message.answer(f"Игра `{game_id}` успешно запущена. Уведомление разослано {sent_count} из {len(all_user_ids)} пользователей.")
+
+@admin_router.message(Command("startgame"), F.from_user.id.in_(ADMIN_IDS))
+async def start_game_command(message: types.Message, bot: Bot):
+    await start_game_logic(message, bot)
+
+@admin_router.message(Command("continuegame"), F.from_user.id.in_(ADMIN_IDS))
+async def continue_game_command(message: types.Message, bot: Bot):
+    await start_game_logic(message, bot)
 
 
 @admin_router.message(Command("stopgame"), F.from_user.id.in_(ADMIN_IDS))
@@ -94,7 +121,7 @@ async def stop_game_command(message: types.Message, bot: Bot):
         winner_score = winner['score']
         winner_text = f"🏆 Победитель этого раунда: @{winner_username} с результатом {winner_score}%!"
 
-    # Рассылка результатов
+    # Рассылка результатов пользователям
     for user_id in participants:
         user_score = await get_user_result_for_game(game_id, user_id)
         try:
@@ -102,7 +129,6 @@ async def stop_game_command(message: types.Message, bot: Bot):
                 user_id,
                 f"🥁 Время подвести итоги! Раунд завершён!\n\n"
                 f"Оригинальный промт был: «{true_prompt}»\n\n"
-                f"{winner_text}\n\n"
                 f"Твой результат: {user_score}%\n\n"
                 "Спасибо за участие! До следующей битвы! ✨"
             )
@@ -111,22 +137,17 @@ async def stop_game_command(message: types.Message, bot: Bot):
         except Exception as e:
             print(f"Не удалось отправить итоги пользователю {user_id}: {e}")
 
-    # Рассылка предложения о новом раунде
-    new_round_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🎯 Да, начинаем!", callback_data="play_now_from_text")],
-        [types.InlineKeyboardButton(text="⏰ Не сейчас", callback_data="play_later_from_text")]
-    ])
-    for user_id in participants:
+    # Отправка информации о победителе админам
+    for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(
-                user_id,
-                "🔥 Стартует новый раунд! Готов(а) снова бросить вызов нейросети?",
-                reply_markup=new_round_keyboard
+                admin_id,
+                f"Информация для администратора:\n"
+                f"Игра `{game_id}` завершена.\n"
+                f"{winner_text}"
             )
-        except TelegramForbiddenError:
-            print(f"Не удалось предложить новый раунд пользователю {user_id}: бот заблокирован или это другой бот.")
         except Exception as e:
-            print(f"Не удалось предложить новый раунд пользователю {user_id}: {e}")
+            print(f"Не удалось отправить итоги админу {admin_id}: {e}")
 
     await message.answer(f"Игра {game_id} успешно остановлена. Результаты разосланы {len(participants)} участникам.")
 

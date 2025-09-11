@@ -53,19 +53,32 @@ async def init_db():
 async def add_game(prompt, photo_id):
     game_id = str(uuid.uuid4())
     async with aiosqlite.connect('prompt_battle.db') as db:
-        # Завершаем все предыдущие активные игры
-        await db.execute("UPDATE games SET status = 'finished' WHERE status = 'active'")
         await db.execute(
-            "INSERT INTO games (game_id, prompt, photo_id, status) VALUES (?, ?, ?, 'active')",
+            "INSERT INTO games (game_id, prompt, photo_id, status) VALUES (?, ?, ?, 'pending')",
             (game_id, prompt, photo_id)
         )
         await db.commit()
     return game_id
 
-async def activate_game(game_id):
+
+async def start_next_game():
     async with aiosqlite.connect('prompt_battle.db') as db:
-        await db.execute("UPDATE games SET status = 'active' WHERE game_id = ?", (game_id,))
+        # Завершаем текущую активную игру, если она есть
+        await db.execute("UPDATE games SET status = 'finished' WHERE status = 'active'")
+        
+        # Находим следующую ожидающую игру
+        cursor = await db.execute("SELECT game_id FROM games WHERE status = 'pending' ORDER BY id ASC LIMIT 1")
+        row = await cursor.fetchone()
+        
+        if row:
+            game_id = row[0]
+            # Активируем ее
+            await db.execute("UPDATE games SET status = 'active' WHERE game_id = ?", (game_id,))
+            await db.commit()
+            return game_id
+        
         await db.commit()
+        return None
 
 async def stop_game(game_id):
     async with aiosqlite.connect('prompt_battle.db') as db:
