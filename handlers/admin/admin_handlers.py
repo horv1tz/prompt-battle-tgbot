@@ -19,6 +19,10 @@ class CreateGame(StatesGroup):
     waiting_for_photo = State()
     waiting_for_prompt = State()
 
+class TestAnalyse(StatesGroup):
+    waiting_for_text1 = State()
+    waiting_for_text2 = State()
+
 @admin_router.message(Command("help"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_help_command(message: types.Message):
     await message.answer(
@@ -86,54 +90,55 @@ async def start_game_logic(message: types.Message, bot: Bot):
 async def start_game_command(message: types.Message, bot: Bot):
     await start_game_logic(message, bot)
 
-@admin_router.message(Command("continuegame"), F.from_user.id.in_(ADMIN_IDS))
-async def continue_game_command(message: types.Message, bot: Bot):
-    await start_game_logic(message, bot)
-
-
-@admin_router.message(Command("stopgame"), F.from_user.id.in_(ADMIN_IDS))
-async def stop_game_command(message: types.Message, bot: Bot):
+async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = False):
     game_id = await get_current_active_game()
     if not game_id:
-        await message.answer("Нет активных игр для остановки.")
+        if not is_continue:
+            await message.answer("Нет активных игр для остановки.")
         return
 
     await stop_game(game_id)
     
     participants = await get_participants(game_id)
     if not participants:
-        await message.answer(f"Игра {game_id} остановлена, но в ней не было участников.")
+        if not is_continue:
+            await message.answer(f"Игра {game_id} остановлена, но в ней не было участников.")
         return
 
     best_results = await get_best_results(game_id)
     game_data = await get_game(game_id)
 
     if not game_data:
-        await message.answer("Не удалось получить данные игры.")
+        if not is_continue:
+            await message.answer("Не удалось получить данные игры.")
         return
     
     true_prompt, _ = game_data
     
-    winner_text = "🏆 Победитель этого раунда не определен."
+    winner_info_for_admin = "🏆 Победитель этого раунда не определен."
     if best_results:
         winner = best_results[0]
         winner_username = winner['username'] if winner['username'] else f"user_id: {winner['user_id']}"
         winner_score = winner['score']
-        winner_text = f"🏆 Победитель этого раунда: @{winner_username} с результатом {winner_score}%!"
+        winner_prompt = winner['prompt_text']
+        winner_phone = winner['phone_number'] if 'phone_number' in winner.keys() else 'Не указан'
+        
+        winner_info_for_admin = (
+            f"🏆 Победитель: @{winner_username}\n"
+            f"Процент: {winner_score}%\n"
+            f"Промпт: «{winner_prompt}»\n"
+            f"Телефон: {winner_phone}"
+        )
 
-    # Рассылка результатов пользователям
+    # Рассылка уведомлений о завершении игры участникам
     for user_id in participants:
-        user_score = await get_user_result_for_game(game_id, user_id)
         try:
             await bot.send_message(
                 user_id,
-                f"🥁 Время подвести итоги! Раунд завершён!\n\n"
-                f"Оригинальный промт был: «{true_prompt}»\n\n"
-                f"Твой результат: {user_score}%\n\n"
-                "Спасибо за участие! До следующей битвы! ✨"
+                "Раунд завершён! Спасибо за участие! Скоро мы объявим победителя в канале. ✨"
             )
         except TelegramForbiddenError:
-            print(f"Не удалось отправить итоги пользователю {user_id}: бот заблокирован или это другой бот.")
+            print(f"Не удалось отправить итоги пользователю {user_id}: бот заблокирован.")
         except Exception as e:
             print(f"Не удалось отправить итоги пользователю {user_id}: {e}")
 
@@ -142,14 +147,28 @@ async def stop_game_command(message: types.Message, bot: Bot):
         try:
             await bot.send_message(
                 admin_id,
-                f"Информация для администратора:\n"
-                f"Игра `{game_id}` завершена.\n"
-                f"{winner_text}"
+                f"<b>Информация для администратора:</b>\n\n"
+                f"Игра <code>{game_id}</code> завершена.\n\n"
+                f"{winner_info_for_admin}\n\n"
+                f"Оригинальный промт был: «{true_prompt}»",
+                parse_mode="HTML"
             )
         except Exception as e:
             print(f"Не удалось отправить итоги админу {admin_id}: {e}")
 
-    await message.answer(f"Игра {game_id} успешно остановлена. Результаты разосланы {len(participants)} участникам.")
+    if not is_continue:
+        await message.answer(f"Игра {game_id} успешно остановлена. Результаты отправлены администраторам.")
+
+@admin_router.message(Command("stopgame"), F.from_user.id.in_(ADMIN_IDS))
+async def stop_game_command(message: types.Message, bot: Bot):
+    await stop_game_logic(message, bot)
+
+@admin_router.message(Command("continuegame"), F.from_user.id.in_(ADMIN_IDS))
+async def continue_game_command(message: types.Message, bot: Bot):
+    await message.answer("Завершаю текущую игру...")
+    await stop_game_logic(message, bot, is_continue=True)
+    await message.answer("Начинаю следующую игру...")
+    await start_game_logic(message, bot)
 
 @admin_router.message(Command("excel"), F.from_user.id.in_(ADMIN_IDS))
 async def excel_export_command(message: types.Message):
@@ -212,6 +231,8 @@ async def excel_export_callback(callback_query: types.CallbackQuery):
     )
     await callback_query.answer()
 
+from utils.similarity import get_similarity_score
+
 @admin_router.message(Command("senduser"), F.from_user.id.in_(ADMIN_IDS))
 async def send_user_command(message: types.Message, bot: Bot):
     try:
@@ -227,3 +248,25 @@ async def send_user_command(message: types.Message, bot: Bot):
         await message.answer(f"Не удалось отправить сообщение пользователю {user_id}: бот заблокирован или это другой бот.")
     except Exception as e:
         await message.answer(f"Не удалось отправить сообщение: {e}")
+
+@admin_router.message(Command("testanalyse"), F.from_user.id.in_(ADMIN_IDS))
+async def test_analyse_start(message: types.Message, state: FSMContext):
+    await state.set_state(TestAnalyse.waiting_for_text1)
+    await message.answer("Введите первый текст для сравнения.")
+
+@admin_router.message(TestAnalyse.waiting_for_text1, F.from_user.id.in_(ADMIN_IDS))
+async def test_analyse_text1_received(message: types.Message, state: FSMContext):
+    await state.update_data(text1=message.text)
+    await state.set_state(TestAnalyse.waiting_for_text2)
+    await message.answer("Отлично. Теперь введите второй текст.")
+
+@admin_router.message(TestAnalyse.waiting_for_text2, F.from_user.id.in_(ADMIN_IDS))
+async def test_analyse_text2_received(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    text1 = data.get('text1')
+    text2 = message.text
+
+    score = await get_similarity_score(text1, text2)
+    await message.answer(f"Сходство между текстами: {score}%")
+    
+    await state.clear()

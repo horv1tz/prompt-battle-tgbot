@@ -1,18 +1,12 @@
 import asyncio
-from sentence_transformers import SentenceTransformer, util
-
-# Загрузка модели один раз при старте
-model = SentenceTransformer('stsb-roberta-large')
+from difflib import SequenceMatcher
 
 def _calculate_similarity(sentence1, sentence2):
     """
-    Синхронная функция для вычисления сходства.
+    Синхронная функция для вычисления сходства с помощью SequenceMatcher.
     """
-    embedding1 = model.encode(sentence1, convert_to_tensor=True)
-    embedding2 = model.encode(sentence2, convert_to_tensor=True)
-    cosine_score = util.pytorch_cos_sim(embedding1, embedding2)[0][0]
-    score = round(max(0, cosine_score.item()) * 100)
-    return int(score)
+    similarity = SequenceMatcher(None, sentence1, sentence2).ratio()
+    return int(similarity * 100)
 
 async def get_similarity_score(sentence1, sentence2):
     """

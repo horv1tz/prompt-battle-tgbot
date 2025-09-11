@@ -1,10 +1,10 @@
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
-from aiogram import types
+from aiogram import Bot, types
 from aiogram.types import Message, CallbackQuery
 from config.config import CHANNEL_ID
 
-async def is_user_subscribed(user_id: int, bot: types.Bot) -> bool:
+async def is_user_subscribed(user_id: int, bot: Bot) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
         return member.status in ['member', 'administrator', 'creator']
