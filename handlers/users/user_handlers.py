@@ -114,15 +114,16 @@ async def phone_number_handler(message: types.Message, state: FSMContext):
 
 async def show_main_menu(message: types.Message):
     game_id = await get_current_active_game()
-    if not game_id:
-        await message.answer("С возвращением! Сейчас нет активных игр. Как только начнется новая, я пришлю уведомление.")
-        return
+    text = "Сейчас нет активных игр. Как только начнется новая, я пришлю уведомление."
+    keyboard = None
 
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🎯 Да, начинаем!", callback_data="play_now")],
-        [types.InlineKeyboardButton(text="⏰ Не сейчас", callback_data="play_later")]
-    ])
-    await message.answer("С возвращением! Готов(а) сыграть прямо сейчас?", reply_markup=keyboard)
+    if game_id:
+        text = "Готов(а) сыграть прямо сейчас?"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Подключиться к игре", callback_data="play_now")]
+        ])
+
+    await message.answer(text, reply_markup=keyboard)
 
 # =================================================================================================
 # GAME READINESS AND START
@@ -162,12 +163,6 @@ async def play_now_handler(callback_query: types.CallbackQuery, state: FSMContex
         
     await callback_query.answer()
 
-
-@user_router.callback_query(F.data == 'play_later')
-async def play_later_handler(callback_query: types.CallbackQuery, state: FSMContext):
-    await callback_query.message.edit_text("Когда будешь готов(а) — просто напиши мне команду /start, и мы начнём.")
-    await state.clear()
-    await callback_query.answer()
 
 # =================================================================================================
 # GAME PROCESS
