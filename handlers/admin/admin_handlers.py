@@ -115,9 +115,12 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
     
     true_prompt, _ = game_data
     
-    winner_info_for_admin = "🏆 Победитель этого раунда не определен."
+    winner_info_for_admin = "🏆 Победитель этого рауунда не определен."
+    winner_message_part = "Победитель этого раунда не определен."
+    winner_id = None
     if best_results:
         winner = best_results[0]
+        winner_id = winner['user_id']
         winner_username = winner['username'] if winner['username'] else f"user_id: {winner['user_id']}"
         winner_score = winner['score']
         winner_prompt = winner['prompt_text']
@@ -129,14 +132,27 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
             f"Промпт: «{winner_prompt}»\n"
             f"Телефон: {winner_phone}"
         )
+        winner_message_part = f"🏆 Победитель этого раунда: @{winner_username} с результатом {winner_score}%!"
 
     # Рассылка уведомлений о завершении игры участникам
     for user_id in participants:
         try:
-            await bot.send_message(
-                user_id,
-                "Раунд завершён! Спасибо за участие! Скоро мы объявим победителя в канале. ✨"
+            user_score = await get_user_result_for_game(game_id, user_id)
+            
+            base_message_text = (
+                "Время подвести итоги! Раунд завершён!\n\n"
+                f"Оригинальный промт был: «{true_prompt}»\n\n"
+                f"{winner_message_part}\n\n"
+                f"Твой результат: {user_score}%\n\n"
+                "Спасибо за участие! До следующей битвы! ✨"
             )
+
+            if user_id == winner_id:
+                # Отдельное сообщение для победителя
+                winner_message = f"Поздравляем с победой! 🥳\n\n{base_message_text}"
+                await bot.send_message(user_id, winner_message)
+            else:
+                await bot.send_message(user_id, base_message_text)
         except TelegramForbiddenError:
             print(f"Не удалось отправить итоги пользователю {user_id}: бот заблокирован.")
         except Exception as e:

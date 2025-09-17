@@ -52,7 +52,8 @@ async def ask_for_phone(message: types.Message):
     )
     await message.answer(
         "Здорово! Ты с нами 🚀\n\n"
-        "Для связи в случае победы нам нужен твой номер телефона. Поделись им, нажав кнопку ниже 👇",
+        "Для связи в случае победы нам нужен твой номер телефона. Поделись им, нажав кнопку ниже 👇\n\n"
+        "Или просто напиши его в формате: +7 XXX XXX XX XX",
         reply_markup=keyboard
     )
 
@@ -122,22 +123,42 @@ async def phone_number_handler(message: types.Message, state: FSMContext):
     await state.clear()
     await show_main_menu(message)
 
+
+@user_router.message(UserState.awaiting_phone_number, F.text)
+async def phone_number_text_handler(message: types.Message, state: FSMContext):
+    phone_number = message.text
+    # Простая проверка на наличие цифр и знака +
+    if re.match(r'^\+?\d[\d\s-]{9,15}\d$', phone_number):
+        await update_user_phone(message.from_user.id, phone_number)
+        await update_user_state(message.from_user.id, 'registered')
+        await message.answer("Отлично, всё готово для старта!", reply_markup=types.ReplyKeyboardRemove())
+        await state.clear()
+        await show_main_menu(message)
+    else:
+        await message.answer("Неверный формат номера. Попробуй еще раз, например: +7 999 123 45 67")
+
 async def show_main_menu(message: types.Message):
     game_id = await get_current_active_game()
-    text = "Сейчас нет активных игр. Как только начнется новая, я пришлю уведомление."
-    keyboard = None
 
     if game_id:
-        text = "Готов(а) сыграть прямо сейчас?"
+        text = "Отлично, все готово для старта! Ты готов(а) сыграть прямо сейчас?"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Подключиться к игре", callback_data="play_now")]
+            [types.InlineKeyboardButton(text="Да, начинаем!", callback_data="play_now")],
+            [types.InlineKeyboardButton(text="Не сейчас", callback_data="play_later")]
         ])
-
-    await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard)
+    else:
+        text = "Игра еще не начата, дождитесь начала игры."
+        await message.answer(text)
 
 # =================================================================================================
 # GAME READINESS AND START
 # =================================================================================================
+
+@user_router.callback_query(F.data == 'play_later')
+async def play_later_handler(callback_query: types.CallbackQuery):
+    await callback_query.message.edit_text("Когда будешь готов(а) - просто напиши мне команду /start, и мы начнем.")
+    await callback_query.answer()
 
 @user_router.callback_query(F.data == 'play_now')
 async def play_now_handler(callback_query: types.CallbackQuery, state: FSMContext):
@@ -157,9 +178,7 @@ async def play_now_handler(callback_query: types.CallbackQuery, state: FSMContex
     await callback_query.message.edit_text("Супер! Вот правила:\n\n"
                                          "1. Я отправлю тебе уникальное изображение, сгенерированное нейросетью.\n"
                                          "2. Твоя задача — угадать, какой промт (текстовый запрос) был использован для его создания.\n"
-                                         "3. У тебя будет 1 попытка, чтобы предложить свой вариант. Чем точнее твой промт — тем выше шанс на победу!\n\n"
-                                         "Внимание! Чтобы все играли честно, я не буду показывать процент схожести до конца раунда. "
-                                         "Когда раунд завершится, я подведу итоги, пришлю правильный промт и твой результат.\n\n"
+                                         "3. У тебя будет 1 попытка, чтобы предложить свой вариант. Чем точнее твой промт — тем выше шанс на победу! Внимание! Чтобы все играли честно, я не буду показывать процент схожести до конца раунда.\n\n"
                                          "Удачи 🏆")
     
     game_data = await get_game(game_id)
