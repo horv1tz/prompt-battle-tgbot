@@ -141,7 +141,7 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
             
             base_message_text = (
                 "Время подвести итоги! Раунд завершён!\n\n"
-                f"Оригинальный промт был: «{true_prompt}»\n\n"
+                f"Оригинальный промпт был: «{true_prompt}»\n\n"
                 f"{winner_message_part}\n\n"
                 f"Твой результат: {user_score}%\n\n"
                 "Спасибо за участие! До следующей битвы! ✨"
@@ -166,7 +166,7 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
                 f"<b>Информация для администратора:</b>\n\n"
                 f"Игра <code>{game_id}</code> завершена.\n\n"
                 f"{winner_info_for_admin}\n\n"
-                f"Оригинальный промт был: «{true_prompt}»",
+                f"Оригинальный промпт был: «{true_prompt}»",
                 parse_mode="HTML"
             )
         except Exception as e:
