@@ -36,7 +36,7 @@ async def admin_help_command(message: types.Message):
     )
 
 @admin_router.message(Command("makegame"), F.from_user.id.in_(ADMIN_IDS))
-async def make_game_command(message: types.Message, state: FSMContext):
+async def make_game_command(message types.Message, state: FSMContext):
     await message.answer("Загрузите фото для новой игры.")
     await state.set_state(CreateGame.waiting_for_photo)
 
@@ -116,7 +116,7 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
     true_prompt, _ = game_data
     
     winner_info_for_admin = "🏆 Победитель этого рауунда не определен."
-    winner_message_part = "Победитель этого раунда не определен."
+    winner_score = 0
     winner_id = None
     if best_results:
         winner = best_results[0]
@@ -132,27 +132,21 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
             f"Промпт: «{winner_prompt}»\n"
             f"Телефон: {winner_phone}"
         )
-        winner_message_part = f"Победитель этого раунда с результатом {winner_score}%!"
 
     # Рассылка уведомлений о завершении игры участникам
     for user_id in participants:
         try:
             user_score = await get_user_result_for_game(game_id, user_id)
             
-            base_message_text = (
+            message_text = (
                 "Время подвести итоги! Раунд завершён!\n\n"
-                f"Оригинальный промпт был: «{true_prompt}»\n\n"
-                f"{winner_message_part}\n\n"
+                f"Оригинальный промт был: «{true_prompt}»\n\n"
+                f"🏆 В этом раунде победил игрок, набравший {winner_score}%.\n\n"
                 f"Твой результат: {user_score}%\n\n"
                 "Спасибо за участие! До следующей битвы! ✨"
             )
 
-            if user_id == winner_id:
-                # Отдельное сообщение для победителя
-                winner_message = f"Поздравляем с победой! 🥳\n\n{base_message_text}"
-                await bot.send_message(user_id, winner_message)
-            else:
-                await bot.send_message(user_id, base_message_text)
+            await bot.send_message(user_id, message_text)
         except TelegramForbiddenError:
             print(f"Не удалось отправить итоги пользователю {user_id}: бот заблокирован.")
         except Exception as e:
