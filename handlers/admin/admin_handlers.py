@@ -77,7 +77,7 @@ async def start_game_logic(message: types.Message, bot: Bot):
     for user_id in all_user_ids:
         try:
             # Убираем фото на старте раунда
-            await bot.send_message(user_id, "Новая игра началась! Нажмите /start, чтобы присоединиться.")
+            await bot.send_message(user_id, "Новый раунд начался! Нажмите /start, чтобы присоединиться")
             sent_count += 1
         except TelegramForbiddenError:
             print(f"Не удалось отправить сообщение пользователю {user_id}: бот заблокирован или это другой бот.")
@@ -132,7 +132,7 @@ async def stop_game_logic(message: types.Message, bot: Bot, is_continue: bool = 
             f"Промпт: «{winner_prompt}»\n"
             f"Телефон: {winner_phone}"
         )
-        winner_message_part = f"🏆 Победитель этого раунда: @{winner_username} с результатом {winner_score}%!"
+        winner_message_part = f"Победитель этого раунда с результатом {winner_score}%!"
 
     # Рассылка уведомлений о завершении игры участникам
     for user_id in participants:
