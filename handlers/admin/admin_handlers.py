@@ -36,7 +36,7 @@ async def admin_help_command(message: types.Message):
     )
 
 @admin_router.message(Command("makegame"), F.from_user.id.in_(ADMIN_IDS))
-async def make_game_command(message types.Message, state: FSMContext):
+async def make_game_command(message: types.Message, state: FSMContext):
     await message.answer("Загрузите фото для новой игры.")
     await state.set_state(CreateGame.waiting_for_photo)
 
